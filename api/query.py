@@ -28,7 +28,7 @@ class handler(BaseHTTPRequestHandler):
 
             prev_exchange = self._extract_last_exchange(history)
 
-            answer, sources = answer_question(question, style=style, prev_exchange=prev_exchange)
+            answer, sources = answer_question(question, style=style, prev_exchange=prev_exchange, conversation_history=history)
 
             self._respond(200, {"answer": answer, "sources": sources})
 

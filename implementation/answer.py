@@ -1,7 +1,7 @@
 import os
 import requests
 import psycopg2
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI
 
@@ -139,7 +139,7 @@ def rewrite_query(question: str, prev_exchange: dict | None = None) -> str:
     if prev_exchange and prev_exchange.get("question"):
         prompt = REWRITE_PROMPT_WITH_HISTORY.format(
             prev_question=prev_exchange["question"],
-            prev_answer=prev_exchange.get("answer", "")[:500],  # cap length, we just need gist
+            prev_answer=prev_exchange.get("answer", "")[:2000],  # cap length, we just need gist
             question=question,
         )
     else:
@@ -185,12 +185,34 @@ def format_context_with_citations(docs):
     return "\n\n".join(context_parts), sources
 
 
-def answer_question(question: str, style: str = "precise", top_n: int = 5, prev_exchange: dict | None = None):
-    """Returns (answer_text, sources_list) -- clean split for the API layer to combine as it likes.
-    prev_exchange = {"question": ..., "answer": ...} for the immediately preceding turn, or None for
-    the first message in a conversation."""
+def answer_question(question: str, style: str = "precise", top_n: int = 5, prev_exchange: dict | None = None, conversation_history: list | None = None):
+    """Returns (answer_text, sources_list).
+    prev_exchange = {"question": ..., "answer": ...} for the immediately preceding turn --
+      used ONLY to help retrieval resolve follow-up references (e.g. "what about for goods?").
+    conversation_history = full prior turns, oldest first, as [{"role": "user"/"bot", "text": ...}, ...] --
+      given to the model directly so it can answer questions ABOUT the conversation itself
+      (e.g. "what did I ask first?"), separate from the retrieval-grounding concern above.
+    """
     docs = fetch_context(question, top_n=top_n, prev_exchange=prev_exchange)
     context, sources = format_context_with_citations(docs)
-    system_prompt = PROMPT_VARIANTS[style].format(context=context)
-    response = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=question)])
+
+    system_prompt = PROMPT_VARIANTS[style].format(context=context) + """
+
+    Note: you may also see earlier turns of this conversation above. If the person asks about the
+    conversation itself (e.g. what they asked earlier), you can answer from that directly -- that is
+    not subject to the "only use the provided context" restriction, which applies to GST/legal
+    substance only."""
+
+    messages = [SystemMessage(content=system_prompt)]
+
+    if conversation_history:
+        for turn in conversation_history:
+            if turn.get("role") == "user":
+                messages.append(HumanMessage(content=turn.get("text", "")))
+            elif turn.get("role") == "bot":
+                messages.append(AIMessage(content=turn.get("text", "")))
+
+    messages.append(HumanMessage(content=question))
+
+    response = llm.invoke(messages)
     return response.content, sources
