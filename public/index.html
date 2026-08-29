@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GST Export Assistant</title>
+<style>
+  :root { --bg: #0f1115; --panel: #171a21; --panel2: #1c202a; --border: #2a2e38; --text: #e7e9ee; --muted: #9aa1ad; --accent: #4f8cff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+  .layout { display: flex; height: 100vh; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 24px; }
+  .sidebar { width: 320px; border-left: 1px solid var(--border); background: var(--panel2); padding: 24px 18px; overflow-y: auto; flex-shrink: 0; }
+
+  h1 { font-size: 1.3rem; margin: 0 0 2px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 14px; }
+  .disclaimer { background: #241f13; border: 1px solid #4a3b1a; color: #d9b866; padding: 8px 12px; border-radius: 8px; font-size: 0.78rem; margin-bottom: 14px; }
+
+  .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; margin-bottom: 14px; }
+  .msg { padding: 12px 16px; border-radius: 10px; max-width: 88%; white-space: pre-wrap; line-height: 1.5; font-size: 0.93rem; cursor: default; }
+  .msg.user { align-self: flex-end; background: var(--accent); color: white; }
+  .msg.bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+  .msg.bot.active { border-color: var(--accent); }
+  .msg.bot.clickable { cursor: pointer; }
+  .msg.loading { align-self: flex-start; color: var(--muted); font-style: italic; background: transparent; border: none; padding: 4px 0; }
+
+  .input-row { display: flex; gap: 8px; }
+  select, input, button { font-size: 0.9rem; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 10px 12px; }
+  input { flex: 1; }
+  button { background: var(--accent); border: none; color: white; cursor: pointer; font-weight: 600; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .clear-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); font-weight: 500; }
+
+  .sidebar h2 { font-size: 0.95rem; margin: 0 0 4px; }
+  .sidebar .hint { color: var(--muted); font-size: 0.78rem; margin-bottom: 14px; }
+  .source-item { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.8rem; line-height: 1.4; }
+  .source-item .idx { color: var(--accent); font-weight: 700; margin-right: 4px; }
+  .no-sources { color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="main">
+    <h1>GST Export Assistant</h1>
+    <p class="subtitle">Ask about export of services, LUT filing, and place-of-supply rules for freelancers &amp; service exporters.</p>
+    <div class="disclaimer">
+      This tool answers from a fixed set of GST circulars and Act sections indexed as of a specific date — it is not a substitute for a tax professional.
+    </div>
+
+    <div class="messages" id="messages"></div>
+
+    <div class="input-row">
+      <select id="style">
+        <option value="precise">Precise</option>
+        <option value="simple">Simple</option>
+      </select>
+      <input id="question" type="text" placeholder="e.g. Do I need to file LUT to export services?" />
+      <button id="send">Ask</button>
+      <button id="clear" class="clear-btn" title="Clear conversation">Clear</button>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <h2>Sources</h2>
+    <p class="hint">Documents the current answer is grounded in. Click a previous answer to see its sources instead.</p>
+    <div id="sources"></div>
+  </div>
+</div>
+
+<script>
+  const messagesEl = document.getElementById("messages");
+  const questionEl = document.getElementById("question");
+  const styleEl = document.getElementById("style");
+  const sendBtn = document.getElementById("send");
+  const clearBtn = document.getElementById("clear");
+  const sourcesEl = document.getElementById("sources");
+
+  // Each entry: { role: "user"|"bot", text, sources? }
+  let history = [];
+
+  function renderSources(sources) {
+    sourcesEl.innerHTML = "";
+    if (!sources || !sources.length) {
+      sourcesEl.innerHTML = '<p class="no-sources">No sources for this message.</p>';
+      return;
+    }
+    sources.forEach((s) => {
+      const div = document.createElement("div");
+      div.className = "source-item";
+      const match = s.match(/^\[(\d+)\]\s*(.*)$/);
+      if (match) {
+        div.innerHTML = `<span class="idx">[${match[1]}]</span>${escapeHtml(match[2])}`;
+      } else {
+        div.textContent = s;
+      }
+      sourcesEl.appendChild(div);
+    });
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement("div");
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function setActiveBotMessage(el) {
+    document.querySelectorAll(".msg.bot").forEach((m) => m.classList.remove("active"));
+    if (el) el.classList.add("active");
+  }
+
+  function renderAll() {
+    messagesEl.innerHTML = "";
+    history.forEach((entry) => {
+      const div = document.createElement("div");
+      div.className = "msg " + entry.role;
+      div.textContent = entry.text;
+
+      if (entry.role === "bot") {
+        div.classList.add("clickable");
+        div.addEventListener("click", () => {
+          renderSources(entry.sources);
+          setActiveBotMessage(div);
+        });
+      }
+      messagesEl.appendChild(div);
+    });
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    const lastBot = [...history].reverse().find((e) => e.role === "bot");
+    if (lastBot) {
+      renderSources(lastBot.sources);
+      const botDivs = document.querySelectorAll(".msg.bot");
+      setActiveBotMessage(botDivs[botDivs.length - 1]);
+    } else {
+      renderSources([]);
+    }
+  }
+
+  async function ask() {
+    const question = questionEl.value.trim();
+    if (!question) return;
+
+    history.push({ role: "user", text: question });
+    renderAll();
+    questionEl.value = "";
+    sendBtn.disabled = true;
+
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "msg loading";
+    loadingDiv.textContent = "Thinking...";
+    messagesEl.appendChild(loadingDiv);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // history at this point already includes the just-asked user question as the last entry --
+    // send everything BEFORE it, so the backend can find the previous full exchange (user + bot).
+    const historyForRequest = history.slice(0, -1).map((h) => ({ role: h.role, text: h.text }));
+
+    try {
+      const res = await fetch("/api/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, style: styleEl.value, history: historyForRequest }),
+      });
+      const data = await res.json();
+      loadingDiv.remove();
+
+      if (data.error) {
+        history.push({ role: "bot", text: "Error: " + data.error, sources: [] });
+      } else {
+        history.push({ role: "bot", text: data.answer, sources: data.sources || [] });
+      }
+      renderAll();
+    } catch (err) {
+      loadingDiv.remove();
+      history.push({ role: "bot", text: "Request failed: " + err.message, sources: [] });
+      renderAll();
+    } finally {
+      sendBtn.disabled = false;
+    }
+  }
+
+  sendBtn.addEventListener("click", ask);
+  questionEl.addEventListener("keydown", (e) => { if (e.key === "Enter") ask(); });
+  clearBtn.addEventListener("click", () => {
+    history = [];
+    renderAll();
+  });
+
+  renderAll();
+</script>
+</body>
+</html>

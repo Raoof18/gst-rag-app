@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/query.py": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    { "source": "/gst-assistant", "destination": "/index.html" }
+  ]
+}
