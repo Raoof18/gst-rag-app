@@ -54,19 +54,8 @@ Metrics: MRR / nDCG / keyword coverage for retrieval quality, plus an
 LLM-as-judge scoring accuracy/completeness/relevance of generated answers
 against reference answers.
 
-## Local development
 
-```bash
-cp .env.example .env   # fill in real values
-pip install -r requirements.txt
-```
-
-## Deployment
-
-See deployment instructions provided alongside this project for the GitHub
-push and Vercel setup steps.
-
-## Known limitations (by design, not oversight)
+## Known limitations
 
 - Corpus reflects a fixed set of documents indexed as of a specific date — not
   a live feed of current GST rules or thresholds.
