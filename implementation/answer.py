@@ -179,7 +179,15 @@ def fetch_context(question: str, top_n=5, prev_exchange: dict | None = None):
 def format_context_with_citations(docs):
     context_parts, sources = [], []
     for i, doc in enumerate(docs, 1):
-        label = f"[{i}] {doc.metadata.get('source', 'unknown')} (page {doc.metadata.get('page_label', '?')})"
+        raw_source = doc.metadata.get('source', 'unknown')
+        clean_name = os.path.splitext(os.path.basename(raw_source))[0]
+
+        page_label = doc.metadata.get('page_label')
+        if page_label:
+            label = f"[{i}] {clean_name} (page {page_label})"
+        else:
+            label = f"[{i}] {clean_name}"
+
         context_parts.append(f"{label}\n{doc.page_content}")
         sources.append(label)
     return "\n\n".join(context_parts), sources
