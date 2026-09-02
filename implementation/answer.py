@@ -13,9 +13,8 @@ llm = ChatOpenAI(model="gpt-4.1-mini", api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def embed_query(text: str):
-    """Embed a single query string via HuggingFace's hosted Inference API.
-    Uses the SAME model (all-MiniLM-L6-v2) that the stored chunk vectors were built with --
-    this must never change without re-embedding the whole corpus, or similarity search breaks."""
+    # has to be the same model that embedded the stored chunks, or the vectors
+    # aren't comparable and search just returns garbage with no error
     response = requests.post(
         HF_EMBED_URL,
         headers={"Authorization": f"Bearer {HF_API_TOKEN}"},
@@ -24,7 +23,7 @@ def embed_query(text: str):
     )
     response.raise_for_status()
     result = response.json()
-    # API returns per-token embeddings for feature-extraction; mean-pool to a single vector
+    # sometimes this comes back as per-token embeddings instead of one pooled vector
     if isinstance(result[0], list) and isinstance(result[0][0], list):
         tokens = result[0]
         dim = len(tokens[0])
@@ -78,6 +77,8 @@ def keyword_search(query: str, top_k=10):
 
 
 def reciprocal_rank_fusion(result_lists, k=60):
+    # can't just average the raw scores, vector distance and text rank aren't
+    # on the same scale -- so this only looks at rank position, not the score itself
     scores, doc_lookup = {}, {}
     for docs in result_lists:
         for rank, doc in enumerate(docs):
@@ -134,13 +135,13 @@ Context:
 
 
 def rewrite_query(question: str, prev_exchange: dict | None = None) -> str:
-    """prev_exchange, if given, is {"question": ..., "answer": ...} from the last turn.
-    Used only to resolve follow-up context -- does not change how standalone questions are handled."""
+    # prev_exchange only matters for follow-ups like "what about for goods instead" --
+    # a plain standalone question just ignores it
     if prev_exchange and prev_exchange.get("question"):
         prompt = REWRITE_PROMPT_WITH_HISTORY.format(
             prev_question=prev_exchange["question"],
-            prev_answer=prev_exchange.get("answer", "")[:2000],  # cap length, we just need gist
-            question=question,
+            prev_answer=prev_exchange.get("answer", "")[:2000],  # learned this the hard way -- 500 chars was
+            question=question,                                    # cutting off before point 5 of a 5-point answer
         )
     else:
         prompt = REWRITE_PROMPT.format(question=question)
@@ -156,12 +157,15 @@ def rerank_chunks(question: str, docs, top_n=5):
         order = [int(x.strip()) for x in response.content.strip().split(",")]
         ranked_docs = [docs[i] for i in order if i < len(docs)]
     except (ValueError, IndexError):
+        # model didn't return clean numbers, just fall back rather than blow up
         ranked_docs = docs
     return ranked_docs[:top_n]
 
 
 def fetch_context(question: str, top_n=5, prev_exchange: dict | None = None):
     rewritten = rewrite_query(question, prev_exchange=prev_exchange)
+    # search both the raw question and the rewritten one -- if the rewrite goes
+    # sideways for some reason, we're not fully betting on it being right
     original_fused = hybrid_retrieve(question)
     rewritten_fused = hybrid_retrieve(rewritten)
 
@@ -180,36 +184,33 @@ def format_context_with_citations(docs):
     context_parts, sources = [], []
     for i, doc in enumerate(docs, 1):
         raw_source = doc.metadata.get('source', 'unknown')
-        clean_name = os.path.splitext(os.path.basename(raw_source))[0]
+        clean_name = os.path.splitext(os.path.basename(raw_source))[0]  # drop the folder + extension, nobody needs that
 
         page_label = doc.metadata.get('page_label')
         if page_label:
             label = f"[{i}] {clean_name} (page {page_label})"
         else:
-            label = f"[{i}] {clean_name}"
+            label = f"[{i}] {clean_name}"  # HTML sources don't have pages, so just skip that part
 
         context_parts.append(f"{label}\n{doc.page_content}")
         sources.append(label)
     return "\n\n".join(context_parts), sources
 
 
-def answer_question(question: str, style: str = "precise", top_n: int = 5, prev_exchange: dict | None = None, conversation_history: list | None = None):
-    """Returns (answer_text, sources_list).
-    prev_exchange = {"question": ..., "answer": ...} for the immediately preceding turn --
-      used ONLY to help retrieval resolve follow-up references (e.g. "what about for goods?").
-    conversation_history = full prior turns, oldest first, as [{"role": "user"/"bot", "text": ...}, ...] --
-      given to the model directly so it can answer questions ABOUT the conversation itself
-      (e.g. "what did I ask first?"), separate from the retrieval-grounding concern above.
-    """
+def answer_question(question: str, style: str = "precise", top_n: int = 5,
+                     prev_exchange: dict | None = None, conversation_history: list | None = None):
+    # prev_exchange only feeds the rewrite step (retrieval). conversation_history
+    # is different -- it goes straight to the model so it actually remembers the
+    # conversation, otherwise stuff like "what did I ask first" just doesn't work
     docs = fetch_context(question, top_n=top_n, prev_exchange=prev_exchange)
     context, sources = format_context_with_citations(docs)
 
     system_prompt = PROMPT_VARIANTS[style].format(context=context) + """
 
-    Note: you may also see earlier turns of this conversation above. If the person asks about the
-    conversation itself (e.g. what they asked earlier), you can answer from that directly -- that is
-    not subject to the "only use the provided context" restriction, which applies to GST/legal
-    substance only."""
+Note: you may also see earlier turns of this conversation above. If the person asks about the
+conversation itself (e.g. what they asked earlier), you can answer from that directly -- that is
+not subject to the "only use the provided context" restriction, which applies to GST/legal
+substance only."""
 
     messages = [SystemMessage(content=system_prompt)]
 

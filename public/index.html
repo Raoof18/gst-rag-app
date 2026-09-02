@@ -5,38 +5,91 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GST Export Assistant</title>
 <style>
-  :root { --bg: #0f1115; --panel: #171a21; --panel2: #1c202a; --border: #2a2e38; --text: #e7e9ee; --muted: #9aa1ad; --accent: #4f8cff; }
+  :root {
+    --bg: #15130F;
+    --bg-raised: #1C1914;
+    --text: #EDE6D8;
+    --text-muted: #9C9483;
+    --line: #2E2A22;
+    --accent: #C9972E;
+    --accent-dim: #7A611F;
+  }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
 
   .layout { display: flex; height: 100vh; }
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 24px; }
-  .sidebar { width: 320px; border-left: 1px solid var(--border); background: var(--panel2); padding: 24px 18px; overflow-y: auto; flex-shrink: 0; }
+  .sidebar { width: 320px; border-left: 1px solid var(--line); background: var(--bg-raised); padding: 24px 18px; overflow-y: auto; flex-shrink: 0; }
 
-  h1 { font-size: 1.3rem; margin: 0 0 2px; }
-  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 14px; }
-  .disclaimer { background: #241f13; border: 1px solid #4a3b1a; color: #d9b866; padding: 8px 12px; border-radius: 8px; font-size: 0.78rem; margin-bottom: 14px; }
+  h1 { font-size: 1.3rem; margin: 0 0 2px; color: var(--text); }
+  .subtitle { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 14px; }
+  .disclaimer { background: var(--bg-raised); border: 1px solid var(--accent-dim); color: var(--accent); padding: 8px 12px; border-radius: 8px; font-size: 0.78rem; margin-bottom: 14px; }
 
   .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; margin-bottom: 14px; }
   .msg { padding: 12px 16px; border-radius: 10px; max-width: 88%; white-space: pre-wrap; line-height: 1.5; font-size: 0.93rem; cursor: default; }
-  .msg.user { align-self: flex-end; background: var(--accent); color: white; }
-  .msg.bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #15130F; }
+  .msg.bot { align-self: flex-start; background: var(--bg-raised); border: 1px solid var(--line); }
   .msg.bot.active { border-color: var(--accent); }
   .msg.bot.clickable { cursor: pointer; }
-  .msg.loading { align-self: flex-start; color: var(--muted); font-style: italic; background: transparent; border: none; padding: 4px 0; }
+  .msg.loading { align-self: flex-start; color: var(--text-muted); font-style: italic; background: transparent; border: none; padding: 4px 0; }
 
   .input-row { display: flex; gap: 8px; }
-  select, input, button { font-size: 0.9rem; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 10px 12px; }
-  input { flex: 1; }
-  button { background: var(--accent); border: none; color: white; cursor: pointer; font-weight: 600; }
+  select, input, button { font-size: 0.9rem; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-raised); color: var(--text); padding: 10px 12px; }
+  input { flex: 1; min-width: 0; }
+  button { background: var(--accent); border: none; color: #15130F; cursor: pointer; font-weight: 600; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .clear-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); font-weight: 500; }
+  .clear-btn { background: transparent; border: 1px solid var(--line); color: var(--text-muted); font-weight: 500; }
 
-  .sidebar h2 { font-size: 0.95rem; margin: 0 0 4px; }
-  .sidebar .hint { color: var(--muted); font-size: 0.78rem; margin-bottom: 14px; }
-  .source-item { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.8rem; line-height: 1.4; }
+  .sidebar h2 { font-size: 0.95rem; margin: 0 0 4px; color: var(--text); }
+  .sidebar .hint { color: var(--text-muted); font-size: 0.78rem; margin-bottom: 14px; }
+  .source-item { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.8rem; line-height: 1.4; }
   .source-item .idx { color: var(--accent); font-weight: 700; margin-right: 4px; }
-  .no-sources { color: var(--muted); font-size: 0.85rem; }
+  .no-sources { color: var(--text-muted); font-size: 0.85rem; }
+
+  /* mobile toggle button for the sources panel -- hidden on desktop */
+  .sources-toggle { display: none; }
+
+  @media (max-width: 720px) {
+    .layout { flex-direction: column; position: relative; }
+    .main { padding: 16px; height: 100vh; }
+    h1 { font-size: 1.15rem; }
+
+    /* sidebar becomes a slide-up drawer instead of sitting beside the chat --
+       there's just no room for two columns on a phone screen */
+    .sidebar {
+      width: 100%;
+      border-left: none;
+      border-top: 1px solid var(--line);
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      max-height: 60vh;
+      transform: translateY(100%);
+      transition: transform 0.25s ease;
+      z-index: 10;
+    }
+    .sidebar.open { transform: translateY(0); }
+
+    .sources-toggle {
+      display: block;
+      width: 100%;
+      margin-bottom: 10px;
+      background: var(--bg-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--line);
+      font-weight: 500;
+    }
+
+    .input-row { flex-wrap: wrap; }
+    select { flex: 1 1 auto; }
+    .clear-btn { flex: 0 0 auto; }
+  }
+
+  @media (max-width: 420px) {
+    .msg { max-width: 94%; font-size: 0.88rem; }
+    .disclaimer { font-size: 0.72rem; }
+  }
 </style>
 </head>
 <body>
@@ -47,6 +100,8 @@
     <div class="disclaimer">
       This tool answers from a fixed set of GST circulars and Act sections indexed as of a specific date — it is not a substitute for a tax professional.
     </div>
+
+    <button class="sources-toggle" id="sourcesToggle">Show sources</button>
 
     <div class="messages" id="messages"></div>
 
@@ -61,7 +116,7 @@
     </div>
   </div>
 
-  <div class="sidebar">
+  <div class="sidebar" id="sidebar">
     <h2>Sources</h2>
     <p class="hint">Documents the current answer is grounded in. Click a previous answer to see its sources instead.</p>
     <div id="sources"></div>
@@ -75,9 +130,16 @@
   const sendBtn = document.getElementById("send");
   const clearBtn = document.getElementById("clear");
   const sourcesEl = document.getElementById("sources");
+  const sidebarEl = document.getElementById("sidebar");
+  const sourcesToggleEl = document.getElementById("sourcesToggle");
 
-  // Each entry: { role: "user"|"bot", text, sources? }
+  // { role: "user"|"bot", text, sources? } per turn
   let history = [];
+
+  sourcesToggleEl.addEventListener("click", () => {
+    sidebarEl.classList.toggle("open");
+    sourcesToggleEl.textContent = sidebarEl.classList.contains("open") ? "Hide sources" : "Show sources";
+  });
 
   function renderSources(sources) {
     sourcesEl.innerHTML = "";
@@ -152,8 +214,8 @@
     messagesEl.appendChild(loadingDiv);
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
-    // history at this point already includes the just-asked user question as the last entry --
-    // send everything BEFORE it, so the backend can find the previous full exchange (user + bot).
+    // the question we just asked is already sitting at the end of history,
+    // so we slice it off here -- the backend just needs everything before it
     const historyForRequest = history.slice(0, -1).map((h) => ({ role: h.role, text: h.text }));
 
     try {

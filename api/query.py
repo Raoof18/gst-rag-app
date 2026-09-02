@@ -20,7 +20,7 @@ class handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(content_length))
             question = body.get("question", "").strip()
             style = body.get("style", "precise")
-            history = body.get("history", [])  # list of {role, text} from the client, oldest first
+            history = body.get("history", [])  # oldest first
 
             if not question:
                 self._respond(400, {"error": "Missing 'question' in request body"})
@@ -28,7 +28,11 @@ class handler(BaseHTTPRequestHandler):
 
             prev_exchange = self._extract_last_exchange(history)
 
-            answer, sources = answer_question(question, style=style, prev_exchange=prev_exchange, conversation_history=history)
+            answer, sources = answer_question(
+                question, style=style,
+                prev_exchange=prev_exchange,
+                conversation_history=history
+            )
 
             self._respond(200, {"answer": answer, "sources": sources})
 
@@ -36,8 +40,8 @@ class handler(BaseHTTPRequestHandler):
             self._respond(500, {"error": str(e)})
 
     def _extract_last_exchange(self, history):
-        """history is oldest-first [{role, text}, ...]. Find the last bot message and the
-        user message immediately before it -- that's the 'previous exchange' for follow-up context."""
+        # walk backwards to find the last bot reply and the question right before it --
+        # that pair is what the rewrite step uses to resolve follow-ups
         for i in range(len(history) - 1, -1, -1):
             if history[i].get("role") == "bot":
                 prev_answer = history[i].get("text", "")
